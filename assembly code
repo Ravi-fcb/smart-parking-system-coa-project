@@ -1,0 +1,680 @@
+.model small
+.stack 100h
+.data
+menu db '*** MENU ***',13,10,'1-2Wheeler 2-4Wheeler 3-8Wheeler',13,10,'4-Record 5-Delete 6-Leave 7-Exit',13,10,'$'
+msg_full db 'FULL!$'
+msg_wrong db 'Invalid!$'
+msg_2w db '2Wheeler$'
+msg_4w db '4Wheeler$'
+msg_8w db '8Wheeler$'
+msg_parked db ' in slot $'
+msg_emp db 'Empty$'
+msg_dur_type db 'Duration: 1-Days 2-Hours',13,10,'$'
+msg_days db 'Days(1-9): $'
+msg_hours db 'Hours(1-9): $'
+msg_amt db 'Amount = $'
+msg_total db 'Revenue = $'
+msg_count db 'Vehicles = $'
+msg_r db '2Wheelers = $'
+msg_c db '4Wheelers = $'
+msg_b db '8Wheelers = $'
+msg_reset db 'Deleted!$'
+msg_capacity db 'Capacity(10-99): $'
+msg_space db 'Free = $'
+msg_leave db 'LEAVING',13,10,'$'
+msg_noveh db 'No vehicle!$'
+msg_left db 'Removed.$'
+msg_slot db 'Slot(1-$'
+msg_close db '): $'
+msg_2wzone db '2WHEELER(1-$'
+msg_4wzone db '4WHEELER($'
+msg_8wzone db '8WHEELER($'
+msg_dash db '-$'
+msg_overflow db '4Wheeler zone full, adjusting to 8Wheeler zone!',13,10,'$'
+capacity db 0
+tw_end db 0
+fw_start db 0
+fw_end db 0
+ew_start db 0
+count db 0
+r db 0
+c db 0
+b db 0
+amount dw 0
+MAXSLOTS equ 99
+slot_status db MAXSLOTS dup(0)
+slot_type db MAXSLOTS dup(0)
+slot_dur_type db MAXSLOTS dup(0)
+slot_dur db MAXSLOTS dup(0)
+TW_DAY dw 100
+FW_DAY dw 200
+EW_DAY dw 300
+TW_HR dw 10
+FW_HR dw 20
+EW_HR dw 30
+.code
+PrintCRLF proc
+push ax
+push dx
+mov dl,13
+mov ah,2
+int 21h
+mov dl,10
+int 21h
+pop dx
+pop ax
+ret
+PrintCRLF endp
+PrintStr proc
+push ax
+mov ah,9
+int 21h
+pop ax
+ret
+PrintStr endp
+PrintDec proc
+push ax
+push bx
+push cx
+push dx
+cmp ax,0
+jne PD1
+mov dl,'0'
+mov ah,2
+int 21h
+jmp PD9
+PD1:mov bx,10
+xor cx,cx
+PD2:xor dx,dx
+div bx
+push dx
+inc cx
+cmp ax,0
+jne PD2
+PD3:pop dx
+add dl,48
+mov ah,2
+int 21h
+loop PD3
+PD9:pop dx
+pop cx
+pop bx
+pop ax
+ret
+PrintDec endp
+ReadKey proc
+push dx
+RK1:mov ah,7
+int 21h
+cmp al,13
+je RK1
+cmp al,10
+je RK1
+mov dl,al
+mov ah,2
+int 21h
+pop dx
+ret
+ReadKey endp
+ReadDigit proc
+push dx
+RD1:call ReadKey
+cmp al,'0'
+jb RD1
+cmp al,'9'
+ja RD1
+sub al,'0'
+pop dx
+ret
+ReadDigit endp
+ReadTwoDigit proc
+push bx
+push dx
+call ReadDigit
+mov bl,al
+mov ah,7
+int 21h
+cmp al,13
+je RTD_S
+cmp al,10
+je RTD_S
+mov dl,al
+mov ah,2
+int 21h
+cmp al,'0'
+jb RTD_S
+cmp al,'9'
+ja RTD_S
+sub al,'0'
+mov cl,al
+mov al,10
+mul bl
+add al,cl
+pop dx
+pop bx
+ret
+RTD_S:mov al,bl
+pop dx
+pop bx
+ret
+ReadTwoDigit endp
+Find2WSlot:
+push ax
+push cx
+mov cl,[tw_end]
+xor ch,ch
+xor bx,bx
+F2W1:cmp bl,cl
+jae F2WN
+mov al,[slot_status+bx]
+cmp al,0
+je F2WF
+inc bx
+jmp F2W1
+F2WF:pop cx
+pop ax
+clc
+ret
+F2WN:pop cx
+pop ax
+stc
+ret
+Find4WSlot:
+push ax
+push cx
+push dx
+mov bl,[fw_start]
+dec bl
+mov cl,[fw_end]
+F4W1:cmp bl,cl
+jae F4W2
+mov al,[slot_status+bx]
+cmp al,0
+je F4WF
+inc bx
+jmp F4W1
+F4W2:push bx
+mov dx,offset msg_overflow
+call PrintStr
+pop bx
+mov bl,[ew_start]
+dec bl
+mov cl,[capacity]
+F4W3:cmp bl,cl
+jae F4WN
+mov al,[slot_status+bx]
+cmp al,0
+je F4WF
+inc bx
+jmp F4W3
+F4WF:pop dx
+pop cx
+pop ax
+clc
+ret
+F4WN:pop dx
+pop cx
+pop ax
+stc
+ret
+Find8WSlot:
+push ax
+push cx
+mov bl,[ew_start]
+dec bl
+mov cl,[capacity]
+F8W1:cmp bl,cl
+jae F8WN
+mov al,[slot_status+bx]
+cmp al,0
+je F8WF
+inc bx
+jmp F8W1
+F8WF:pop cx
+pop ax
+clc
+ret
+F8WN:pop cx
+pop ax
+stc
+ret
+ReadDur:
+push ax
+push bx
+push dx
+mov dx,offset msg_dur_type
+call PrintStr
+RT1:call ReadKey
+call PrintCRLF
+cmp al,'1'
+je RT2
+cmp al,'2'
+je RT3
+mov dx,offset msg_wrong
+call PrintStr
+call PrintCRLF
+jmp RT1
+RT2:mov byte ptr [slot_dur_type+bx],1
+mov dx,offset msg_days
+call PrintStr
+call ReadDigit
+call PrintCRLF
+cmp al,1
+jb RT2
+cmp al,9
+ja RT2
+mov byte ptr [slot_dur+bx],al
+jmp RT9
+RT3:mov byte ptr [slot_dur_type+bx],2
+mov dx,offset msg_hours
+call PrintStr
+call ReadDigit
+call PrintCRLF
+cmp al,1
+jb RT3
+cmp al,9
+ja RT3
+mov byte ptr [slot_dur+bx],al
+RT9:pop dx
+pop bx
+pop ax
+ret
+ShowSlots:
+push ax
+push bx
+push cx
+push dx
+push si
+SS1:cmp si,cx
+jae SS9
+mov dl,'S'
+mov ah,2
+int 21h
+mov ax,si
+inc ax
+push cx
+push si
+call PrintDec
+pop si
+pop cx
+mov dl,':'
+mov ah,2
+int 21h
+mov dl,' '
+int 21h
+mov bx,si
+mov al,[slot_status+bx]
+cmp al,0
+je SS2
+mov al,[slot_type+bx]
+cmp al,1
+je SS3
+cmp al,2
+je SS4
+cmp al,3
+je SS5
+SS2:push cx
+push si
+mov dx,offset msg_emp
+call PrintStr
+pop si
+pop cx
+jmp SS8
+SS3:push cx
+push si
+mov dx,offset msg_2w
+call PrintStr
+pop si
+pop cx
+jmp SS8
+SS4:push cx
+push si
+mov dx,offset msg_4w
+call PrintStr
+pop si
+pop cx
+jmp SS8
+SS5:push cx
+push si
+mov dx,offset msg_8w
+call PrintStr
+pop si
+pop cx
+SS8:push cx
+push si
+call PrintCRLF
+pop si
+pop cx
+inc si
+jmp SS1
+SS9:pop si
+pop dx
+pop cx
+pop bx
+pop ax
+ret
+main proc
+mov ax,@data
+mov ds,ax
+GET_CAP:mov dx,offset msg_capacity
+call PrintStr
+call ReadTwoDigit
+call PrintCRLF
+cmp al,10
+jb GET_CAP
+cmp al,99
+ja GET_CAP
+mov byte ptr [capacity],al
+mov bl,al
+xor bh,bh
+mov ax,bx
+mov bl,10
+mul bl
+mov bl,25
+div bl
+mov byte ptr [tw_end],al
+mov al,[tw_end]
+inc al
+mov byte ptr [fw_start],al
+mov al,[capacity]
+xor ah,ah
+mov bl,10
+mul bl
+mov bl,25
+div bl
+add al,[tw_end]
+mov byte ptr [fw_end],al
+mov al,[fw_end]
+inc al
+mov byte ptr [ew_start],al
+MAIN_LOOP:call PrintCRLF
+mov dx,offset menu
+call PrintStr
+call ReadKey
+mov bl,al
+call PrintCRLF
+cmp bl,'1'
+je TWHEELER
+cmp bl,'2'
+je FWHEELER
+cmp bl,'3'
+je EWHEELER
+cmp bl,'4'
+je RECORD
+cmp bl,'5'
+je RESET_REC
+cmp bl,'6'
+je LEAVING
+cmp bl,'7'
+je EXIT_PROGRAM
+mov dx,offset msg_wrong
+call PrintStr
+jmp MAIN_LOOP
+TWHEELER:call Find2WSlot
+jc FULL
+mov byte ptr [slot_status+bx],1
+mov byte ptr [slot_type+bx],1
+inc byte ptr [count]
+inc byte ptr [r]
+push bx
+call ReadDur
+pop bx
+mov dx,offset msg_2w
+call PrintStr
+mov dx,offset msg_parked
+call PrintStr
+mov ax,bx
+inc ax
+call PrintDec
+jmp MAIN_LOOP
+FWHEELER:call Find4WSlot
+jc FULL
+mov byte ptr [slot_status+bx],1
+mov byte ptr [slot_type+bx],2
+inc byte ptr [count]
+inc byte ptr [c]
+push bx
+call ReadDur
+pop bx
+mov dx,offset msg_4w
+call PrintStr
+mov dx,offset msg_parked
+call PrintStr
+mov ax,bx
+inc ax
+call PrintDec
+jmp MAIN_LOOP
+EWHEELER:call Find8WSlot
+jc FULL
+mov byte ptr [slot_status+bx],1
+mov byte ptr [slot_type+bx],3
+inc byte ptr [count]
+inc byte ptr [b]
+push bx
+call ReadDur
+pop bx
+mov dx,offset msg_8w
+call PrintStr
+mov dx,offset msg_parked
+call PrintStr
+mov ax,bx
+inc ax
+call PrintDec
+jmp MAIN_LOOP
+FULL:mov dx,offset msg_full
+call PrintStr
+jmp MAIN_LOOP
+RECORD:mov dx,offset msg_total
+call PrintStr
+mov ax,word ptr [amount]
+call PrintDec
+call PrintCRLF
+mov dx,offset msg_count
+call PrintStr
+xor ax,ax
+mov al,[count]
+call PrintDec
+call PrintCRLF
+mov dx,offset msg_r
+call PrintStr
+xor ax,ax
+mov al,[r]
+call PrintDec
+call PrintCRLF
+mov dx,offset msg_c
+call PrintStr
+xor ax,ax
+mov al,[c]
+call PrintDec
+call PrintCRLF
+mov dx,offset msg_b
+call PrintStr
+xor ax,ax
+mov al,[b]
+call PrintDec
+call PrintCRLF
+mov dx,offset msg_space
+call PrintStr
+xor ax,ax
+mov al,[capacity]
+sub al,[count]
+call PrintDec
+call PrintCRLF
+call PrintCRLF
+mov dx,offset msg_2wzone
+call PrintStr
+xor ax,ax
+mov al,[tw_end]
+call PrintDec
+mov dl,')'
+mov ah,2
+int 21h
+call PrintCRLF
+xor si,si
+mov cl,[tw_end]
+xor ch,ch
+call ShowSlots
+call PrintCRLF
+mov dx,offset msg_4wzone
+call PrintStr
+xor ax,ax
+mov al,[fw_start]
+call PrintDec
+mov dx,offset msg_dash
+call PrintStr
+xor ax,ax
+mov al,[fw_end]
+call PrintDec
+mov dl,')'
+mov ah,2
+int 21h
+call PrintCRLF
+mov al,[fw_start]
+dec al
+xor ah,ah
+mov si,ax
+mov cl,[fw_end]
+xor ch,ch
+call ShowSlots
+call PrintCRLF
+mov dx,offset msg_8wzone
+call PrintStr
+xor ax,ax
+mov al,[ew_start]
+call PrintDec
+mov dx,offset msg_dash
+call PrintStr
+xor ax,ax
+mov al,[capacity]
+call PrintDec
+mov dl,')'
+mov ah,2
+int 21h
+call PrintCRLF
+mov al,[ew_start]
+dec al
+xor ah,ah
+mov si,ax
+mov cl,[capacity]
+xor ch,ch
+call ShowSlots
+jmp MAIN_LOOP
+RESET_REC:mov word ptr [amount],0
+mov byte ptr [count],0
+mov byte ptr [r],0
+mov byte ptr [c],0
+mov byte ptr [b],0
+mov cx,MAXSLOTS
+xor bx,bx
+CLR1:mov byte ptr [slot_status+bx],0
+mov byte ptr [slot_type+bx],0
+mov byte ptr [slot_dur_type+bx],0
+mov byte ptr [slot_dur+bx],0
+inc bx
+loop CLR1
+mov dx,offset msg_reset
+call PrintStr
+jmp MAIN_LOOP
+LEAVING:mov dx,offset msg_leave
+call PrintStr
+mov dx,offset msg_slot
+call PrintStr
+xor ax,ax
+mov al,[capacity]
+call PrintDec
+mov dx,offset msg_close
+call PrintStr
+call ReadTwoDigit
+call PrintCRLF
+cmp al,1
+jb SLOT_ERR
+mov cl,[capacity]
+cmp al,cl
+ja SLOT_ERR
+dec al
+xor ah,ah
+mov si,ax
+mov al,[slot_status+si]
+cmp al,1
+jne NO_VEH
+mov dl,[slot_type+si]
+push dx
+mov al,[slot_dur_type+si]
+push ax
+mov al,[slot_dur+si]
+xor ah,ah
+mov cx,ax
+pop ax
+cmp al,1
+je CALC_D
+cmp al,2
+je CALC_H
+CALC_D:pop dx
+cmp dl,1
+je R2WD
+cmp dl,2
+je R4WD
+cmp dl,3
+je R8WD
+R2WD:mov ax,cx
+mov bx,TW_DAY
+jmp BILL
+R4WD:mov ax,cx
+mov bx,FW_DAY
+jmp BILL
+R8WD:mov ax,cx
+mov bx,EW_DAY
+jmp BILL
+CALC_H:pop dx
+cmp dl,1
+je R2WH
+cmp dl,2
+je R4WH
+cmp dl,3
+je R8WH
+R2WH:mov ax,cx
+mov bx,TW_HR
+jmp BILL
+R4WH:mov ax,cx
+mov bx,FW_HR
+jmp BILL
+R8WH:mov ax,cx
+mov bx,EW_HR
+BILL:mul bx
+push ax
+mov dx,offset msg_amt
+call PrintStr
+pop ax
+push ax
+call PrintDec
+call PrintCRLF
+pop ax
+add word ptr [amount],ax
+mov al,[slot_type+si]
+cmp al,1
+jne N2W
+dec byte ptr [r]
+N2W:cmp al,2
+jne N4W
+dec byte ptr [c]
+N4W:cmp al,3
+jne N8W
+dec byte ptr [b]
+N8W:mov byte ptr [slot_status+si],0
+mov byte ptr [slot_type+si],0
+mov byte ptr [slot_dur_type+si],0
+mov byte ptr [slot_dur+si],0
+dec byte ptr [count]
+mov dx,offset msg_left
+call PrintStr
+jmp MAIN_LOOP
+SLOT_ERR:mov dx,offset msg_wrong
+call PrintStr
+jmp MAIN_LOOP
+NO_VEH:mov dx,offset msg_noveh
+call PrintStr
+jmp MAIN_LOOP
+EXIT_PROGRAM:mov ah,4Ch
+int 21h
+main endp
+end main
